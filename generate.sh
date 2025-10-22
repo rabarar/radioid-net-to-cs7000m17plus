@@ -141,26 +141,16 @@ generate_output() {
   # Header
   printf '"No","Call Alias","Call Type","Call ID","Receive Tone"\n' > "${out_csv}.tmp"
 
-  # We need CSV-aware parsing:
-  #
-  # radioid user.csv format (commonly):
-  #  id, callsign, fname, surname, city, state, country, ... (order may vary but id=$1, callsign=$2 in your original)
-  #
-  # Using gawk FPAT to treat quoted fields with commas as single fields.
-  # We skip NR==1 (header). We output "Private Call" entries first with deterministic numbering.
-  #
-  # Step 1: Count data rows (excluding header) to know base for group numbering.
+  # Count data rows (excluding header)
   local data_rows
   data_rows="$(gawk -v FPAT='([^,]*)|(\"([^\"]|\"\")*\")' 'NR>1 {c++} END{print c+0}' "${in_csv}")"
 
-  # Step 2: Emit Private Call rows:
-  # Alias: "(CALLSIGN)" same as your original
-  # Numbering: 1..data_rows for private calls
+  # Private Call rows: 1..data_rows
   gawk -v FPAT='([^,]*)|(\"([^\"]|\"\")*\")' '
     NR==1 { next }  # skip header
     {
       id=$1; callsign=$2
-      # trim surrounding quotes if present
+      # trim outer quotes if present
       if (callsign ~ /^".*"$/) { sub(/^"/,"",callsign); sub(/"$/,"",callsign) }
       if (id ~ /^".*"$/)       { sub(/^"/,"",id);       sub(/"$/,"",id) }
       n++
@@ -168,16 +158,24 @@ generate_output() {
     }
   ' "${in_csv}" >> "${out_csv}.tmp"
 
-  # Step 3: Emit Group Call rows in fixed order after private calls
-  if [[ "${GROUP_COUNT}" -gt 0 ]]; then
+  # --- Group Call rows (deterministic, after private calls) ---
+  # Safety: matching lengths
+  if [[ "${#GROUP_NAMES[@]}" -ne "${#GROUP_IDS[@]}" ]]; then
+    die "GROUP_NAMES and GROUP_IDS length mismatch (${#GROUP_NAMES[@]} vs ${#GROUP_IDS[@]})"
+  fi
+
+  # If no groups configured, still succeed
+  if (( ${#GROUP_NAMES[@]} > 0 )); then
+    local no=$(( data_rows + 1 ))
     local i
-    local no
-    no=$(( data_rows + 1 ))
-    for (( i=0; i<GROUP_COUNT; i++ )); do
-      # GROUP_NAMES[i] like "TG.91", GROUP_IDS[i] like "91"
-      printf '"%d","%s","Group Call",%s,"No"\n' "${no}" "${GROUP_NAMES[i]}" "${GROUP_IDS[i]}" >> "${out_csv}.tmp"
-      no=$(( no + 1 ))
+    for (( i=0; i<${#GROUP_NAMES[@]}; i++ )); do
+      # (No subshells; write directly to file)
+      printf '"%d","%s","Group Call",%s,"No"\n' "$no" "${GROUP_NAMES[i]}" "${GROUP_IDS[i]}" >> "${out_csv}.tmp"
+      (( no++ ))
     done
+    log "Appended ${#GROUP_NAMES[@]} Group Call rows after ${data_rows} Private Call rows."
+  else
+    log "No Group Calls configured (--groups none)."
   fi
 
   mv -f -- "${out_csv}.tmp" "${out_csv}"
