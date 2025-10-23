@@ -21,3 +21,9 @@ Notes:
   - Private Call contacts are generated from the user CSV.
   - Group Call contacts are appended in deterministic order (preset or file order).
 ```
+### Convert csv file to xlsx
+
+```
+./csv2xlsx.py 
+Usage: python script_name.py <input.csv> <output.xlsx>
+```
